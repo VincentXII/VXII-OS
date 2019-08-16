@@ -6,13 +6,13 @@ USER_SOURCES=$(wildcard user/*.c)
 USER_PROGRAMS=$(USER_SOURCES:c=exe)
 KERNEL_SOURCES=$(wildcard kernel/*.[chS])
 
-all: basekernel.iso
+all: VXII-OS.iso
 
-run: basekernel.iso disk.img
-	qemu-system-i386 -cdrom basekernel.iso -hda disk.img
+run: VXII-OS.iso disk.img
+	qemu-system-i386 -cdrom VXII-OS.iso -hda disk.img
 
-debug: basekernel.iso disk.img
-	qemu-system-i386 -cdrom basekernel.iso -hda disk.img -s -S &
+debug: VXII-OS.iso disk.img
+	qemu-system-i386 -cdrom VXII-OS.iso -hda disk.img -s -S &
 
 disk.img:
 	qemu-img create disk.img 10M
@@ -37,7 +37,7 @@ basekernel.iso: image
 	${ISOGEN} -input-charset utf-8 -iso-level 2 -J -R -o $@ -b boot/basekernel.img image
 
 clean:
-	rm -rf basekernel.iso image
+	rm -rf VXII-OS.iso image
 	cd kernel && make clean
 	cd library && make clean
 	cd user && make clean
