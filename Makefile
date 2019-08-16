@@ -23,18 +23,18 @@ library/baselib.a: $(LIBRARY_SOURCES) $(LIBRARY_HEADERS)
 $(USER_PROGRAMS): $(USER_SOURCES) library/baselib.a $(LIBRARY_HEADERS)
 	cd user && make
 
-kernel/basekernel.img: $(KERNEL_SOURCES) $(LIBRARY_HEADERS)
+kernel/vxii-os.img: $(KERNEL_SOURCES) $(LIBRARY_HEADERS)
 	cd kernel && make
 
-image: kernel/basekernel.img $(USER_PROGRAMS)
+image: kernel/vxii-os.img $(USER_PROGRAMS)
 	rm -rf image
 	mkdir image image/boot image/bin image/data
-	cp kernel/basekernel.img image/boot
+	cp kernel/vxii-os.img image/boot
 	cp $(USER_PROGRAMS) image/bin
 	head -2000 /usr/share/dict/words > image/data/words
 
-basekernel.iso: image
-	${ISOGEN} -input-charset utf-8 -iso-level 2 -J -R -o $@ -b boot/basekernel.img image
+VXII-OS.iso: image
+	${ISOGEN} -input-charset utf-8 -iso-level 2 -J -R -o $@ -b boot/vxii-os.img image
 
 clean:
 	rm -rf VXII-OS.iso image
