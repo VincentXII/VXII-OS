@@ -93,9 +93,14 @@ int syscall_open_file_relative( int fd, const char *path, int mode, kernel_flags
 	return syscall(SYSCALL_OPEN_FILE_RELATIVE, fd, (uint32_t) path, mode, flags, 0);
 }
 
-int syscall_open_dir( int fd, const char *name, kernel_flags_t flags )
+int syscall_open_dir( const char *name, kernel_flags_t flags )
 {
-	return syscall(SYSCALL_OPEN_DIR, fd, (uint32_t) name, flags, 0, 0);
+	return syscall(SYSCALL_OPEN_DIR, (uint32_t) name, flags, 0, 0, 0 );
+}
+
+int syscall_open_dir_relative( int fd, const char *name, kernel_flags_t flags )
+{
+	return syscall(SYSCALL_OPEN_DIR_RELATIVE, fd, (uint32_t) name, flags, 0, 0 );
 }
 
 int syscall_open_window(int wd, int x, int y, int w, int h)
@@ -123,14 +128,9 @@ int syscall_object_dup(int fd1, int fd2)
 	return syscall(SYSCALL_OBJECT_DUP, fd1, fd2, 0, 0, 0);
 }
 
-int syscall_object_read(int fd, void *data, int length)
+int syscall_object_read(int fd, void *data, int length, kernel_io_flags_t flags )
 {
-	return syscall(SYSCALL_OBJECT_READ, fd, (uint32_t) data, length, 0, 0);
-}
-
-int syscall_object_read_nonblock(int fd, void *data, int length)
-{
-	return syscall(SYSCALL_OBJECT_READ_NONBLOCK, fd, (uint32_t) data, length, 0, 0);
+	return syscall(SYSCALL_OBJECT_READ, fd, (uint32_t) data, length, flags, 0);
 }
 
 int syscall_object_list( int fd, char *buffer, int n)
@@ -138,9 +138,9 @@ int syscall_object_list( int fd, char *buffer, int n)
 	return syscall(SYSCALL_OBJECT_LIST, fd, (uint32_t) buffer, (uint32_t) n, 0, 0);
 }
 
-int syscall_object_write(int fd, void *data, int length)
+int syscall_object_write(int fd, const void *data, int length, kernel_io_flags_t flags )
 {
-	return syscall(SYSCALL_OBJECT_WRITE, fd, (uint32_t) data, length, 0, 0);
+	return syscall(SYSCALL_OBJECT_WRITE, fd, (uint32_t) data, length, flags, 0);
 }
 
 int syscall_object_seek(int fd, int offset, int whence)
@@ -193,6 +193,16 @@ int syscall_system_stats(struct system_stats *s)
 	return syscall(SYSCALL_SYSTEM_STATS, (uint32_t) s, 0, 0, 0, 0);
 }
 
+int syscall_bcache_stats(struct bcache_stats *bstats)
+{
+	return syscall(SYSCALL_BCACHE_STATS, (uint32_t) bstats, 0, 0, 0, 0);
+}
+
+int syscall_bcache_flush()
+{
+	return syscall(SYSCALL_BCACHE_FLUSH, 0, 0, 0, 0, 0);
+}
+
 int syscall_system_time( uint32_t *t )
 {
 	return syscall(SYSCALL_SYSTEM_TIME, (uint32_t)t, 0, 0, 0, 0);
@@ -201,6 +211,11 @@ int syscall_system_time( uint32_t *t )
 int syscall_system_rtc( struct rtc_time *time )
 {
 	return syscall(SYSCALL_SYSTEM_RTC, (uint32_t)time, 0, 0, 0, 0);
+}
+
+int syscall_device_driver_stats(char * name, void * stats)
+{
+	return syscall(SYSCALL_DEVICE_DRIVER_STATS, (uint32_t) name, (uint32_t) stats, 0, 0, 0);
 }
 
 int syscall_chdir(const char *path)

@@ -4,6 +4,9 @@
 #include "library/user-io.h"
 #include "kernel/ascii.h"
 #include "library/errno.h"
+#include "library/kernel_object_string.h"
+
+#define MAX_LINE_LENGTH 1024
 
 void print_directory(char *d, int length)
 {
@@ -14,6 +17,23 @@ void print_directory(char *d, int length)
 		length -= len;
 	}
 }
+
+void do_table()
+{
+	printf("Object Table:\n");
+	char tag[16];
+	int i, max = syscall_object_max();
+	for(i=0;i<=max;i++) {
+		int type = syscall_object_type(i);
+		if(type>=0) {
+			tag[0] = 0;
+			syscall_object_get_tag(i,tag,sizeof(tag));
+			printf("%d: %s (%s)\n",i,kernel_object_string(type),tag);
+		}
+	}
+	printf("\n");
+}
+
 
 int do_command(char *line)
 {
@@ -96,8 +116,10 @@ int do_command(char *line)
 			}
 		}
 	} else if(pch && !strcmp(pch, "list")) {
+		const char *arg = strtok(0," ");
+		if(!arg) arg = "/";
 		char buffer[1024];
-		int fd = syscall_open_file(".",0,0);
+		int fd = syscall_open_dir(arg,0);
 		if(fd>=0) {
 			int length = syscall_object_list(fd, buffer, 1024);
 			syscall_object_close(fd);
@@ -110,8 +132,10 @@ int do_command(char *line)
 			return 1;
 		}
 		syscall_chdir(path);
+	} else if(pch && !strcmp(pch,"table")) {
+		do_table();
 	} else if(pch && !strcmp(pch, "help")) {
-		printf("Commands:\necho <text>\nrun <path>\nmount <unit_no> <fs_type>\nlist\nstart <path>\nkill <pid>\nreap <pid>\nwait\nhelp\nexit\n");
+		printf("Commands:\necho <text>\nrun <path>\nmount <unit_no> <fs_type>\nlist\nstart <path>\nkill <pid>\nreap <pid>\nwait\ntable\nhelp\nexit\n");
 	} else if(pch && !strcmp(pch, "exit")) {
 		return -1;
 	} else if(pch) {
@@ -120,34 +144,45 @@ int do_command(char *line)
 	return 0;
 }
 
+int readline( char *line, int length )
+{
+	int i = 0;
+	char c;
+	while(1) {
+		syscall_object_read(0, &c, 1, 0);
+		if(c == ASCII_CR) {
+			printf_putchar(c);
+			flush();
+			line[i] = 0;
+			return i;
+		} else if(c == ASCII_BS) {
+		       	if(i>0) {
+				i--;
+				printf_putchar(c);
+				flush();
+			}
+		} else {
+			if(i<(length-1)) {
+				line[i] = c;
+				i++;
+				printf_putchar(c);
+				flush();
+			}
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
-	printf("User shell ready:\n");
-	char line[1024];
-	char *pos = line;
-	char c;
-	printf("u$ ");
+	char line[MAX_LINE_LENGTH];
+
+	do_table();
+
 	while(1) {
+		printf("shell> ");
 		flush();
-		syscall_object_read(0, &c, 1);
-		if(pos == line && c == ASCII_BS)
-			continue;
-		printf_putchar(c);
-		flush();
-		if(c == ASCII_CR) {
-			int res = do_command(line);
-			if(res < 0) {
-				break;
-			}
-			pos = line;
-			printf("u$ ");
-		} else if(c == ASCII_BS) {
-			pos--;
-		} else {
-			*pos = c;
-			pos++;
+		if(readline(line,sizeof(line))) {
+			do_command(line);
 		}
-		*pos = 0;
 	}
-	return 0;
 }

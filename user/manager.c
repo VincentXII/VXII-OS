@@ -4,229 +4,186 @@ This software is distributed under the GNU General Public License.
 See the file LICENSE for details.
 */
 
+/*
+Simple window manager runs a list of programs and distributes
+events to each based on which one currently has the focus.
+*/
 
 #include "library/syscalls.h"
 #include "library/string.h"
 #include "library/user-io.h"
+#include "library/kernel_object_string.h"
+#include "library/nanowin.h"
 
-/*
-	Have a list of programs and windows that we want to run in certain sized windows
-	and place them across the screen
-*/
+#define NWINDOWS 4
 
-#define num_programs 4
+#define WINDOW_TITLE_HEIGHT 14
+#define WINDOW_TITLE_ACTIVE_COLOR 100,100,255
+#define WINDOW_TITLE_INACTIVE_COLOR 25,25,50
+#define WINDOW_TITLE_TEXT_COLOR 255,255,255
+#define WINDOW_BORDER_COLOR 200,200,200
+#define WINDOW_BORDER 3
+#define WINDOW_TEXT_PADDING 3
 
-typedef struct program {
-	int w;
-	int h;
+#define CLOSE_BOX_PADDING 3
+#define CLOSE_BOX_SIZE (WINDOW_TITLE_HEIGHT-CLOSE_BOX_PADDING*2)
+#define CLOSE_BOX_COLOR 100,100,100
+
+struct window {
+	int w,h,x,y;
+	int console_mode;
 	const char * exec;
-	const char ** args;
+	const char * arg;
 	int argc;
-} program;
+	int pid;
+	int fds[4];
+};
 
-/* Function declarations */
-void draw_border(int x, int y, int w, int h, int thickness, int r, int g, int b);
-void mergeSort(program * programs, int l, int r);
-void merge(program * arr, int l, int m, int r);
+struct nwindow *nw = 0;
 
+void draw_border( struct window *win, int isactive )
+{
+	int x=win->x;
+	int y=win->y;
+	int h=win->h;
+	int w=win->w;
+
+	// Title bar
+	if(isactive) {
+		nw_bgcolor(nw,WINDOW_TITLE_ACTIVE_COLOR);
+	} else {
+		nw_bgcolor(nw,WINDOW_TITLE_INACTIVE_COLOR);
+	}
+	nw_clear(nw,x,y,w,WINDOW_TITLE_HEIGHT);
+
+	// Close box
+	nw_fgcolor(nw,CLOSE_BOX_COLOR);
+	nw_rect(nw,x+CLOSE_BOX_PADDING,y+CLOSE_BOX_PADDING,CLOSE_BOX_SIZE,CLOSE_BOX_SIZE);
+	// Title text
+	nw_fgcolor(nw,WINDOW_TITLE_TEXT_COLOR);
+	nw_string(nw,x+CLOSE_BOX_SIZE+CLOSE_BOX_PADDING*2,y+WINDOW_TEXT_PADDING,win->exec);
+
+	// Border box
+	nw_fgcolor(nw,WINDOW_BORDER_COLOR);
+	nw_line(nw,x,y,w,0);
+	nw_line(nw,x,y+WINDOW_TITLE_HEIGHT-1,w,0);
+
+	nw_line(nw,x,y,0,h);
+	nw_line(nw,x+1,y,0,h);
+
+	nw_line(nw,x,y+h,w,0);
+	nw_line(nw,x+1,y+h,w,0);
+
+	nw_line(nw,x+w,y,0,h);
+	nw_line(nw,x+w+1,y,0,h);
+
+	nw_bgcolor(nw,0,0,0);
+}
 
 int main(int argc, char *argv[])
 {
-	/* Eventually, programs wont be hardcoded */
-	const char *args1[] = { "/bin/snake.exe" };
-	const char *args2[] = { "/bin/clock.exe", "08:40" };
-	const char *args3[] = { "/bin/shell.exe" };
-	const char *args4[] = { "/bin/mandelbrot.exe" };
+	nw = nw_create_default();
 
+	nw_clear(nw,0, 0, nw_width(nw), nw_height(nw));
+	nw_flush(nw);
 
-	int padding = 4;
-	program programs[] = {
-			{ .w = 55 , .h = 25 , .exec = "bin/clock.exe", .args = args2, .argc = 2 },
-			{ .w = 500, .h = 400, .exec = "bin/shell.exe", .args = args3, .argc = 3 },
-			{ .w = 200, .h = 200, .exec = "bin/snake.exe", .args = args1, .argc = 1 },
-			{ .w = 400, .h = 400, .exec = "bin/mandelbrot.exe", .args = args4, .argc = 1 }
+	struct event e;
+
+	struct window windows[NWINDOWS] = {
+		{ .x=0,         .y=0,         .console_mode=1, .exec = "bin/shell.exe", .arg=0, .argc = 2 },
+		{ .x=nw_width(nw)/2, .y=0,         .console_mode=0, .exec = "bin/saver.exe", .arg=0, .argc = 2 },
+		{ .x=0,         .y=nw_height(nw)/2, .console_mode=0, .exec = "bin/snake.exe", .arg=0, .argc = 2 },
+		{ .x=nw_width(nw)/2, .y=nw_height(nw)/2, .console_mode=1, .exec = "bin/fractal.exe", .arg=0, .argc = 2 },
 	};
 
+	int i;
+	for(i=0;i<NWINDOWS;i++) {
+		windows[i].w = nw_width(nw)/2-2;
+		windows[i].h = nw_height(nw)/2-2;
+	}
 
-	/* Setup the window */
-	int std_dims[2];
-	syscall_object_size(KNO_STDWIN, std_dims, 2);
-	draw_window(KNO_STDWIN);
-	draw_clear(0, 0, std_dims[0], std_dims[1]);
-	draw_flush();
+	for(i=0;i<NWINDOWS;i++) {
+		struct window *w = &windows[i];
 
-	/* Sort programs in order of biggest height to smallest with smaller width being tie breaker */
-	int left = 0;
-	int right = num_programs-1;
-	mergeSort(programs, left, right);
+		struct nwindow *child = nw_create_child(nw,w->x+WINDOW_BORDER, w->y+WINDOW_TITLE_HEIGHT, w->w-WINDOW_BORDER*2, w->h-WINDOW_BORDER-WINDOW_TITLE_HEIGHT);
 
-	/* Packing algorithm - First fit decreasing height - doesnt fit, skip it */
-	int spacing = 6;
-	int current_pos[num_programs][2] = {{ 0 }}; // for each row, keep track of the current x position and height
-	int placement[num_programs][3] = {{ 0 }}; // (x, y, valid) of specific program
-	int p_i, row;
+		w->fds[3] = nw_fd(child);
 
-	for (p_i = 0; p_i < num_programs; ++p_i) {
-		for (row = 0; row < num_programs; ++row) {
-			if (current_pos[row][0] + programs[p_i].w + 4*padding <= std_dims[0]) {
-				// Program can be placed
-				// If it is the first element in the row, x == 0
-				// And, all of the rows havent been set, set the val of the next row
-				if (current_pos[row][0] == 0) {
-					// Probably need to keep track of y coords
-					// If the program overlaps, we cant place it
-					if (current_pos[row][1] + programs[p_i].h + 4*padding > std_dims[1]) {
-						break;
-					} else if (row < num_programs - 1) {
-						// Otherwise, we can place that element in that row and we can
-						// Set the y position of the next row
-						current_pos[row+1][1] = current_pos[row][1] + spacing + programs[p_i].h + 4*padding;
-					}
-				}
-				// Now, set the placement of this object
-				placement[p_i][0] = current_pos[row][0] + 2*padding; // x coord
-				placement[p_i][1] = current_pos[row][1] + 2*padding; // y coord
-				placement[p_i][2] = 1; // program is validly placed
-				current_pos[row][0] = current_pos[row][0] + spacing + programs[p_i].w + 4*padding;;
-				break;
+		if(w->console_mode) {
+			w->fds[0] = syscall_open_console(w->fds[3]);
+			w->fds[1] = w->fds[0];
+			w->fds[2] = w->fds[0];
+		} else {
+			w->fds[0] = w->fds[3];
+			w->fds[1] = w->fds[3];
+			w->fds[2] = w->fds[3]; // Not right place for stderr...
+		}
+
+		const char *args[3];
+		args[0] = w->exec;
+		args[1] = w->arg;
+		args[2] = 0;
+
+		w->pid = syscall_process_wrun(w->exec, w->argc, args, w->fds, 4);
+		if(w->pid<0) {
+			printf("couldn't exec %d\n",w->pid);
+			return 0;
+		}
+
+		draw_border(w,0);
+		nw_flush(nw);
+	}
+
+	/* Finally, allow the user to switch between windows*/
+	int active = 0;
+
+	/* Draw green window around active process */
+	draw_border(&windows[active],1);
+	nw_flush(nw);
+
+	//struct event e;
+	while (nw_next_event(nw,&e)) {
+
+		if(e.type==EVENT_CLOSE) break;
+		if(e.type!=EVENT_KEY_DOWN) continue;
+
+		char c = e.code;
+
+		if (c == '\t') {
+			/* If tab entered, go to the next process */
+
+			/* Draw white boundary around old window. */
+			draw_border(&windows[active],0);
+			nw_flush(nw);
+			active = (active + 1) % NWINDOWS;
+
+			/* Draw green window around new window. */
+			draw_border(&windows[active],1);
+			nw_flush(nw);
+		} else if (c=='~') {
+			/* If tilde entered, cancel the whole thing. */
+			break;
+		} else {
+			if(windows[active].console_mode) {
+				// Post a single character to the console.
+				syscall_object_write(windows[active].fds[0],&c,1,KERNEL_IO_POST);
+			} else {
+				// Post a complete event to the window.
+				syscall_object_write(windows[active].fds[0],&e,sizeof(e),KERNEL_IO_POST);
 			}
 		}
 	}
 
-	/* Wrun each program */
-	int pids[num_programs] = { 0 };
-	int fds[num_programs][4] = {{ 0 }};
-	for (p_i = 0; p_i < num_programs; ++p_i) {
-		if (placement[p_i][2] == 0) {
-			printf("INVALID\n");
-			continue;
-		}
-
-		fds[p_i][0] = syscall_open_pipe();
-		fds[p_i][3] = syscall_open_window(KNO_STDWIN, placement[p_i][0], placement[p_i][1], programs[p_i].w, programs[p_i].h);
-
-		// Standard output and error get console
-		fds[p_i][1] = syscall_open_console(fds[p_i][3]);
-		fds[p_i][2] = fds[p_i][1];
-
-		// Take in an array of FD's
-		pids[p_i] = syscall_process_wrun(programs[p_i].exec, programs[p_i].argc, programs[p_i].args, fds[p_i], 4);
-		draw_window(KNO_STDWIN);
-		draw_border(placement[p_i][0] - 2*padding, placement[p_i][1] - 2*padding, programs[p_i].w + 4*padding, programs[p_i].h + 4*padding, padding, 255, 255, 255);
-		draw_flush();
-	}
-
-	/* Finally, allow the user to switch between programs*/
-	int p_act = 0;
-	char tin = 0;
-
-	/* Draw green window around active process and start it */
-	draw_window(KNO_STDWIN);
-	draw_border(placement[p_act][0] - 2*padding, placement[p_act][1] - 2*padding, programs[p_act].w + 4*padding, programs[p_act].h + 4*padding, padding, 0, 0, 255);
-	draw_flush();
-
-	while (tin != '~') {
-		if (pids[p_act] == 0) {
-			p_act = (p_act + 1) % num_programs;
-			continue;
-		}
-
-		/* If tab entered, go to the next process */
-		syscall_object_read(0, &tin, 1);
-		if (tin == '\t') {
-			draw_window(KNO_STDWIN);
-			draw_border(placement[p_act][0] - 2*padding, placement[p_act][1] - 2*padding, programs[p_act].w + 4*padding, programs[p_act].h + 4*padding, padding, 255, 255, 255);
-			draw_flush();
-			p_act = (p_act + 1) % num_programs;
-
-			/* Draw green window around active process and start it */
-			draw_window(KNO_STDWIN);
-			draw_border(placement[p_act][0] - 2*padding, placement[p_act][1] - 2*padding, programs[p_act].w + 4*padding, programs[p_act].h + 4*padding, padding, 0, 0, 255);
-			draw_flush();
-			draw_color(255, 255, 255);
-			continue;
-		}
-		/* Write 1 character to the correct pipe */
-		syscall_object_write(fds[p_act][0], &tin, 1);
-	}
-
 	/* Reap all children processes */
-	for (int i = 0; i < num_programs; ++i)
-	{
-		syscall_process_reap(pids[i]);
+	for (i=0;i<NWINDOWS;i++) {
+		syscall_process_reap(windows[i].pid);
 	}
+
+	/* XXX should kill child process here */
 
 	/* Clean up the window */
-	draw_color(255, 255, 255);
-	draw_clear(0, 0, std_dims[0], std_dims[1]);
-	draw_flush();
+	nw_clear(nw, 0, 0, nw_width(nw), nw_height(nw));
+	nw_flush(nw);
 	return 0;
 }
 
-
-/** HELPER FUNCTIONS **/
-// Code for mergesort taken from https://www.geeksforgeeks.org/merge-sort/
-void mergeSort(program * arr, int l, int r) {
-	if (l < r) {
-		int m = l+(r-l)/2;
-		mergeSort(arr, l, m);
-		mergeSort(arr, m+1, r);
-		merge(arr, l, m, r);
-	}
-}
-
-
-void merge(program * arr, int l, int m, int r) {
-	int i, j, k;
-	int n1 = m - l + 1;
-	int n2 = r - m;
-
-	program L[n1], R[n2];
-
-	for (i = 0; i < n1; ++i)
-		L[i] = arr[l + i];
-	for (j = 0; j < n2; ++j)
-		R[j] = arr[m + 1 + j];
-
-	i = 0;
-	j = 0;
-	k = l;
-
-	while (i < n1 && j < n2) {
-		if (L[i].h > R[j].h) {
-			arr[k] = L[i];
-			i++;
-		} else if (R[j].h > L[i].h) {
-			arr[k] = R[j];
-			j++;
-		} else if (L[i].w < R[j].w) {
-			arr[k] = L[i];
-			i++;
-		} else {
-			arr[k] = R[j];
-			j++;
-		}
-		k++;
-	}
-
-	while (i < n1) {
-		arr[k] = L[i];
-		i++;
-		k++;
-	}
-
-	while (j < n2) {
-		arr[k] = R[j];
-		j++;
-		k++;
-	}
-}
-
-
-void draw_border(int x, int y, int w, int h, int thickness, int r, int g, int b) {
-	draw_color(r, b, g);
-	draw_rect(x, y, w, thickness);
-	draw_rect(x, y, thickness, h);
-	draw_rect(x + w - thickness, y, thickness, h);
-	draw_rect(x, y + h - thickness, w, thickness);
-}

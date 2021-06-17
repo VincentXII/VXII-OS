@@ -6,9 +6,9 @@ See the file LICENSE for details.
 
 /* Snake Game */
 #include "library/string.h"
-
 #include "library/syscalls.h"
 #include "library/user-io.h"
+#include "library/nanowin.h"
 
 typedef unsigned int uint32_t;
 
@@ -25,20 +25,23 @@ void test(struct coords *snake_coords, uint16_t x_steps, uint16_t y_steps, uint1
 void init_snake_coords(struct coords *snake_coords, uint16_t x_steps, uint16_t y_steps, uint16_t x_start, uint16_t y_start);
 uint8_t set_apple_location(uint16_t x_steps, uint16_t y_steps, struct coords *apple, uint8_t * board);
 uint16_t randint(uint16_t min, uint16_t max);
-int initialize_window(uint16_t x_b, uint16_t y_b, uint16_t w_b, uint16_t h_b, uint16_t thick, uint8_t r_b, uint8_t g_b, uint8_t b_b);
-int draw_border(int x, int y, int w, int h, int thickness, int r, int g, int b);
-void draw_board(uint16_t wd, uint16_t x_0, uint16_t y_0, uint16_t game_width, uint16_t game_height, uint16_t x_steps, uint16_t y_steps, struct coords *snake_coords, struct coords apple, uint16_t thick);
+void initialize_window(uint16_t x_b, uint16_t y_b, uint16_t w_b, uint16_t h_b, uint16_t thick, uint8_t r_b, uint8_t g_b, uint8_t b_b);
+void draw_board(uint16_t x_0, uint16_t y_0, uint16_t game_width, uint16_t game_height, uint16_t x_steps, uint16_t y_steps, struct coords *snake_coords, struct coords apple, uint16_t thick);
 int move_snake(struct coords *snake_coords, struct coords *apple, uint16_t x_steps, uint16_t y_steps, uint8_t * board, char in);
 int check_snake_collision(struct coords *snake_coords);
 uint8_t check_snake_ate_apple(uint16_t x_next, uint16_t y_next, struct coords *apple);
 void update_snake(struct coords *snake_coords, uint16_t x_next, uint16_t y_next, uint8_t grow);
 void update_board(struct coords *snake_coords, uint8_t * board, uint16_t x_steps, uint16_t y_steps);
 
+struct nwindow *nw = 0;
+
 /* Main Execution */
 int main(int argc, char *argv[])
 {
-	uint16_t WIDTH = 200;
-	uint16_t HEIGHT = 200;
+	nw = nw_create_default();
+
+	uint16_t WIDTH = nw_width(nw);
+	uint16_t HEIGHT = nw_height(nw);
 	uint16_t thick = 4;
 
 	// Snake values
@@ -72,44 +75,34 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	// Misc. initializations
-	int status, wd;
+	int status;
 	char in;
 	char tin;
 
-	// Initialize the Window
-	if((wd = initialize_window(x, y, WIDTH, HEIGHT, thick, 255, 255, 255)) < 0) {
-		return 1;
-	}
-	draw_string(thick * 3, thick * 4, "Press any key to start");
-	draw_string(thick * 3, thick * 8, "j: up");
-	draw_string(thick * 3, thick * 12, "n: down");
-	draw_string(thick * 3, thick * 16, "m: right");
-	draw_string(thick * 3, thick * 20, "b: left");
-	draw_flush();
-
-
-	syscall_object_read(0, &tin, 1);
-	if(tin != 'm' && tin != 'n') {
-		in = 'm';
-	} else {
-		in = tin;
-	}
+	initialize_window(x, y, WIDTH, HEIGHT, thick, 255, 255, 255);
+	nw_string(nw,thick * 3, thick * 4, "Press any key to start");
+	nw_string(nw,thick * 3, thick * 8, "w: up");
+	nw_string(nw,thick * 3, thick * 12, "s: down");
+	nw_string(nw,thick * 3, thick * 16, "a: left");
+	nw_string(nw,thick * 3, thick * 20, "d: right");
+	nw_flush(nw);
 
 
 	while(1) {
 		// Draw the board
-		draw_board(wd, thick, thick, game_width, game_height, x_steps, y_steps, snake_coords, apple, thick);
+		nw_clear(nw,0,0,game_width,game_height);
+		draw_board(thick, thick, game_width, game_height, x_steps, y_steps, snake_coords, apple, thick);
 
 		// Wait
 		syscall_process_sleep(100);
 
 		// Get users next input -- non-blocking
-		syscall_object_read_nonblock(0, &tin, 1);
+		tin = nw_getchar(nw,0);
 
 		// Skip if the user goes reverse direction
-		if((tin == 'b' && in == 'm') || (tin == 'm' && in == 'b') || (tin == 'j' && in == 'n') || (tin == 'n' && in == 'j'))
+		if((tin == 'a' && in == 'd') || (tin == 'd' && in == 'a') || (tin == 'w' && in == 's') || (tin == 's' && in == 'w'))
 			in = in;
-		else if(tin > 0 && (tin == 'b' || tin == 'm' || tin == 'n' || tin == 'j'))
+		else if(tin > 0 && (tin == 'w' || tin == 'a' || tin == 's' || tin == 'd'))
 			in = tin;
 
 		// Try to move the snake
@@ -123,28 +116,23 @@ int main(int argc, char *argv[])
 			board[0][0] = 1;
 			init_snake_coords(snake_coords, x_steps, y_steps, x, y);
 
-			draw_flush();
-			draw_color(255, 255, 255);
-			draw_string(thick * 3, thick * 4, "You lose!");
-			draw_string(thick * 3, thick * 8, "Enter q to quit");
-			draw_string(thick * 3, thick * 12, "Press any key to start");
-			draw_flush();
-			syscall_object_read(0, &tin, 1);
+			nw_flush(nw);
+			nw_fgcolor(nw,255, 255, 255);
+			nw_string(nw,thick * 3, thick * 4, "You lose!");
+			nw_string(nw,thick * 3, thick * 8, "Enter q to quit");
+			nw_string(nw,thick * 3, thick * 12, "Press any key to start");
+			nw_flush(nw);
+			tin = nw_getchar(nw,1);
 			if (tin == 'q')
 			{
 				printf("Snake exiting\n");
 				return 1;
 			}
-			if(tin != 'm' && tin != 'n') {
-				tin = 'm';
+			if(tin != 'a' && tin != 'd') {
+				tin = 'a';
 			}
 			in = tin;
 			set_apple_location(x_steps, y_steps, &apple, (uint8_t *) board);
-			draw_clear(0, 0, game_width, game_height);
-			if(draw_border(0, 0, game_width, game_height, thick, 255, 255, 255) < 0) {
-				printf("Border create failed!\n");
-				return -1;
-			}
 		}
 	}
 
@@ -214,53 +202,28 @@ uint16_t randint(uint16_t min, uint16_t max)
 	return state % diff + min;
 }
 
-int initialize_window(uint16_t x_b, uint16_t y_b, uint16_t w_b, uint16_t h_b, uint16_t thick, uint8_t r_b, uint8_t g_b, uint8_t b_b)
+void initialize_window( uint16_t x_b, uint16_t y_b, uint16_t w_b, uint16_t h_b, uint16_t thick, uint8_t r_b, uint8_t g_b, uint8_t b_b)
 {
-	/* draw initial window */
-	draw_window(KNO_STDWIN);
-	draw_clear(0, 0, w_b, h_b);
-	if(draw_border(0, 0, w_b, h_b, thick, r_b, g_b, b_b) < 0) {
-		printf("Border create failed!\n");
-		return -1;
-	}
-	draw_flush();
-
-	return KNO_STDWIN;
+	nw_clear(nw,0, 0, w_b, h_b);
+	nw_flush(nw);
 }
 
-// Draws the border with the colors specified
-int draw_border(int x, int y, int w, int h, int thickness, int r, int g, int b)
+void draw_board(uint16_t x_0, uint16_t y_0, uint16_t game_width, uint16_t game_height, uint16_t x_steps, uint16_t y_steps, struct coords *snake_coords, struct coords apple, uint16_t thick)
 {
-	// Color the border appropriately
-	draw_color(r, b, g);
-
-	// Draw 4 rectangles to represent the border
-	draw_rect(x, y, w, thickness);
-	draw_rect(x, y, thickness, h);
-	draw_rect(x + w - thickness, y, thickness, h);
-	draw_rect(x, y + h - thickness, w, thickness);
-
-	return 0;
-}
-
-void draw_board(uint16_t wd, uint16_t x_0, uint16_t y_0, uint16_t game_width, uint16_t game_height, uint16_t x_steps, uint16_t y_steps, struct coords *snake_coords, struct coords apple, uint16_t thick)
-{
-	draw_clear(x_0, y_0, game_width, game_height);
-	draw_window(wd);
 	// Draw the snake
-	draw_color(0, 255, 0);
+	nw_fgcolor(nw,0, 255, 0);
 	for(uint16_t i = 0; i < x_steps * y_steps; i++) {
 		if(snake_coords[i].x_c == 255) {
 			break;
 		}
-		draw_rect(snake_coords[i].x_c * thick + x_0, snake_coords[i].y_c * thick + y_0, thick, thick);
+		nw_rect(nw,snake_coords[i].x_c * thick + x_0, snake_coords[i].y_c * thick + y_0, thick, thick);
 	}
 
 	// Draw the apple
-	draw_color(255, 0, 0);
-	draw_rect(apple.x_c * thick + x_0, apple.y_c * thick + y_0, thick, thick);
+	nw_fgcolor(nw,255, 0, 0);
+	nw_rect(nw,apple.x_c * thick + x_0, apple.y_c * thick + y_0, thick, thick);
 
-	draw_flush();
+	nw_flush(nw);
 }
 
 int move_snake(struct coords *snake_coords, struct coords *apple, uint16_t x_steps, uint16_t y_steps, uint8_t * board, char in)
@@ -268,25 +231,25 @@ int move_snake(struct coords *snake_coords, struct coords *apple, uint16_t x_ste
 	// Set snakes next coordinates
 	uint16_t x_next, y_next;
 	switch (in) {
-	case ('b'):
+	case ('a'):
 		if(snake_coords[0].x_c == 0)
 			return -1;
 		x_next = snake_coords[0].x_c - 1;
 		y_next = snake_coords[0].y_c;
 		break;
-	case ('m'):
+	case ('d'):
 		if(snake_coords[0].x_c == x_steps - 1)
 			return -1;
 		x_next = snake_coords[0].x_c + 1;
 		y_next = snake_coords[0].y_c;
 		break;
-	case ('j'):
+	case ('w'):
 		if(snake_coords[0].y_c == 0)
 			return -1;
 		x_next = snake_coords[0].x_c;
 		y_next = snake_coords[0].y_c - 1;
 		break;
-	case ('n'):
+	case ('s'):
 		if(snake_coords[0].y_c == y_steps - 1)
 			return -1;
 		x_next = snake_coords[0].x_c;

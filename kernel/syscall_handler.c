@@ -25,8 +25,9 @@ See the file LICENSE for details.
 #include "kmalloc.h"
 #include "page.h"
 #include "ata.h"
-#include "graphics.h"
+#include "window.h"
 #include "is_valid.h"
+#include "bcache.h"
 
 /*
 syscall_handler() is responsible for decoding system calls
@@ -300,7 +301,7 @@ int sys_object_list( int fd, char *buffer, int length)
 	if(!is_valid_object(fd)) return KERROR_INVALID_OBJECT;
 	if(!is_valid_pointer(buffer,length)) return KERROR_INVALID_ADDRESS;
 	if(kobject_get_type(current->ktable[fd])!=KOBJECT_DIR) return KERROR_NOT_A_DIRECTORY;
-	return kobject_read(current->ktable[fd],buffer,length);
+	return kobject_list(current->ktable[fd],buffer,length);
 }
 
 int sys_open_file_relative( int fd, const char *path, int mode, kernel_flags_t flags)
@@ -322,7 +323,7 @@ int sys_open_file_relative( int fd, const char *path, int mode, kernel_flags_t f
 	}
 }
 
-int sys_open_dir( int fd, const char *path, kernel_flags_t flags )
+int sys_open_dir_relative( int fd, const char *path, kernel_flags_t flags )
 {
 	if(!is_valid_object(fd)) return KERROR_INVALID_OBJECT;
 	if(!is_valid_path(path)) return KERROR_INVALID_PATH;
@@ -352,6 +353,29 @@ int sys_open_dir( int fd, const char *path, kernel_flags_t flags )
 	}
 }
 
+int sys_open_dir(const char *path, kernel_flags_t flags)
+{
+	if(!is_valid_path(path)) return KERROR_INVALID_PATH;
+
+	int newfd = process_available_fd(current);
+	if(newfd<0) return KERROR_OUT_OF_OBJECTS;
+
+	struct fs_dirent *d = fs_resolve(path);
+
+	if(!fs_dirent_isdir(d)) {
+		fs_dirent_close(d);
+		return KERROR_NOT_A_DIRECTORY;
+	}
+
+	if(d) {
+		current->ktable[newfd] = kobject_create_dir(d);
+		return newfd;
+	} else {
+		// XXX propagate better error
+		return KERROR_NOT_FOUND;
+	}
+}
+
 int sys_open_file(const char *path, int mode, kernel_flags_t flags)
 {
 	if(!is_valid_path(path)) return KERROR_INVALID_PATH;
@@ -377,26 +401,26 @@ int sys_open_file(const char *path, int mode, kernel_flags_t flags)
 
 int sys_open_console(int wd)
 {
-	if(!is_valid_object_type(wd,KOBJECT_GRAPHICS)) return KERROR_INVALID_OBJECT;
+	if(!is_valid_object_type(wd,KOBJECT_WINDOW)) return KERROR_INVALID_OBJECT;
 
 	int fd = process_available_fd(current);
 	if(fd<0) return KERROR_OUT_OF_OBJECTS;
 
-	current->ktable[fd] = kobject_create_console_from_graphics(current->ktable[wd]);
+	current->ktable[fd] = kobject_create_console_from_window(current->ktable[wd]);
 	return fd;
 }
 
 
 int sys_open_window(int wd, int x, int y, int w, int h)
 {
-	if(!is_valid_object_type(wd,KOBJECT_GRAPHICS)) return KERROR_INVALID_OBJECT;
+	if(!is_valid_object_type(wd,KOBJECT_WINDOW)) return KERROR_INVALID_OBJECT;
 
 	struct kobject *k = current->ktable[wd];
 
 	int fd = process_available_fd(current);
 	if(fd<0) return KERROR_OUT_OF_OBJECTS;
 
-	k = kobject_create_graphics_from_graphics(k,x,y,w,h);
+	k = kobject_create_window_from_window(k,x,y,w,h);
 	if(!k) {
 		// XXX choose better errno
 		return KERROR_INVALID_REQUEST;
@@ -452,31 +476,22 @@ int sys_object_dup(int fd1, int fd2)
 	return fd2;
 }
 
-int sys_object_read(int fd, void *data, int length)
+int sys_object_read(int fd, void *data, int length, kernel_io_flags_t flags )
 {
 	if(!is_valid_object(fd)) return KERROR_INVALID_OBJECT;
 	if(!is_valid_pointer(data,length)) return KERROR_INVALID_ADDRESS;
 
 	struct kobject *p = current->ktable[fd];
-	return kobject_read(p, data, length);
+	return kobject_read(p, data, length, flags);
 }
 
-int sys_object_read_nonblock(int fd, void *data, int length)
+int sys_object_write(int fd, void *data, int length, kernel_io_flags_t flags )
 {
 	if(!is_valid_object(fd)) return KERROR_INVALID_OBJECT;
 	if(!is_valid_pointer(data,length)) return KERROR_INVALID_ADDRESS;
 
 	struct kobject *p = current->ktable[fd];
-	return kobject_read_nonblock(p, data, length);
-}
-
-int sys_object_write(int fd, void *data, int length)
-{
-	if(!is_valid_object(fd)) return KERROR_INVALID_OBJECT;
-	if(!is_valid_pointer(data,length)) return KERROR_INVALID_ADDRESS;
-
-	struct kobject *p = current->ktable[fd];
-	return kobject_write(p, data, length);
+	return kobject_write(p, data, length, flags);
 }
 
 int sys_object_seek(int fd, int offset, int whence)
@@ -502,11 +517,6 @@ int sys_object_close(int fd)
 	kobject_close(p);
 	current->ktable[fd] = 0;
 	return 0;
-}
-
-int sys_object_stats( int fd, struct object_stats *stats )
-{
-	return KERROR_NOT_IMPLEMENTED;
 }
 
 int sys_object_set_tag(int fd, char *tag)
@@ -570,6 +580,19 @@ int sys_system_stats(struct system_stats *s)
 	return 0;
 }
 
+int sys_bcache_stats(struct bcache_stats * s)
+{
+	if(!is_valid_pointer(s,sizeof(*s))) return KERROR_INVALID_ADDRESS;
+	bcache_get_stats( s );
+	return 0;
+}
+
+int sys_bcache_flush()
+{
+	bcache_flush_all();
+	return 0;
+}
+
 int sys_system_time( uint32_t *tm )
 {
 	if(!is_valid_pointer(tm,sizeof(*tm))) return KERROR_INVALID_ADDRESS;
@@ -583,6 +606,15 @@ int sys_system_rtc( struct rtc_time *t )
 {
 	if(!is_valid_pointer(t,sizeof(*t))) return KERROR_INVALID_ADDRESS;
 	rtc_read(t);
+	return 0;
+}
+
+int sys_device_driver_stats(const char * name, struct device_driver_stats * stats)
+{
+	if(!is_valid_string(name)) return KERROR_INVALID_ADDRESS;
+	if(!is_valid_pointer(stats,sizeof(*stats))) return KERROR_INVALID_ADDRESS;
+
+	device_driver_get_stats(name, stats);
 	return 0;
 }
 
@@ -642,7 +674,9 @@ int32_t syscall_handler(syscall_t n, uint32_t a, uint32_t b, uint32_t c, uint32_
 	case SYSCALL_OPEN_FILE_RELATIVE:
 		return sys_open_file_relative(a, (const char *)b, c, d);
 	case SYSCALL_OPEN_DIR:
-		return sys_open_dir(a,(const char*)b,(kernel_flags_t)c);
+		return sys_open_dir((const char*)a, b );
+	case SYSCALL_OPEN_DIR_RELATIVE:
+		return sys_open_dir_relative(a, (const char *)b, c );
 	case SYSCALL_OPEN_WINDOW:
 		return sys_open_window(a, b, c, d, e);
 	case SYSCALL_OPEN_CONSOLE:
@@ -654,21 +688,17 @@ int32_t syscall_handler(syscall_t n, uint32_t a, uint32_t b, uint32_t c, uint32_
 	case SYSCALL_OBJECT_DUP:
 		return sys_object_dup(a, b);
 	case SYSCALL_OBJECT_READ:
-		return sys_object_read(a, (void *) b, c);
-	case SYSCALL_OBJECT_READ_NONBLOCK:
-		return sys_object_read_nonblock(a, (void *) b, c);
+		return sys_object_read(a, (void *) b, c, d );
 	case SYSCALL_OBJECT_LIST:
 		return sys_object_list(a, (char *) b, (int) c);
 	case SYSCALL_OBJECT_WRITE:
-		return sys_object_write(a, (void *) b, c);
+		return sys_object_write(a, (void *) b, c, d);
 	case SYSCALL_OBJECT_SEEK:
 		return sys_object_seek(a, b, c);
 	case SYSCALL_OBJECT_REMOVE:
 		return sys_object_remove(a,(const char*)b);
 	case SYSCALL_OBJECT_CLOSE:
 		return sys_object_close(a);
-	case SYSCALL_OBJECT_STATS:
-		return sys_object_stats(a, (struct object_stats *) b);
 	case SYSCALL_OBJECT_SET_TAG:
 		return sys_object_set_tag(a, (char *) b);
 	case SYSCALL_OBJECT_GET_TAG:
@@ -683,11 +713,16 @@ int32_t syscall_handler(syscall_t n, uint32_t a, uint32_t b, uint32_t c, uint32_
 		return sys_object_copy(a,b);
 	case SYSCALL_SYSTEM_STATS:
 		return sys_system_stats((struct system_stats *) a);
+	case SYSCALL_BCACHE_STATS:
+		return sys_bcache_stats((struct bcache_stats *) a);
+	case SYSCALL_BCACHE_FLUSH:
+		return sys_bcache_flush();
 	case SYSCALL_SYSTEM_TIME:
 		return sys_system_time((uint32_t*)a);
 	case SYSCALL_SYSTEM_RTC:
 		return sys_system_rtc((struct rtc_time *) a);
-
+	case SYSCALL_DEVICE_DRIVER_STATS:
+		return sys_device_driver_stats((char *) a, (struct device_driver_stats *) b);
 	case SYSCALL_CHDIR:
 		return sys_chdir((const char *) a);
 	default:

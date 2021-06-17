@@ -5,10 +5,10 @@ See the file LICENSE for details.
 */
 
 #include "kernel/types.h"
-#include "library/objno.h"
+#include "library/kernel_object_string.h"
 #include "library/string.h"
 
-const char *strobjno( kobject_type_t type )
+const char *kernel_object_string( kobject_type_t type )
 {
 	switch(type) {
 		case KOBJECT_FILE:
@@ -17,8 +17,8 @@ const char *strobjno( kobject_type_t type )
 			return "directory";	
 		case KOBJECT_DEVICE:
 			return "device";
-		case KOBJECT_GRAPHICS:
-			return "graphics";
+		case KOBJECT_WINDOW:
+			return "window";
 		case KOBJECT_CONSOLE:
 			return "console";
 		case KOBJECT_PIPE:

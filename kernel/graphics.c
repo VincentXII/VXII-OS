@@ -99,12 +99,19 @@ int graphics_write(struct graphics *g, struct graphics_command *command)
 				return -1;
 			}
 			break;
-		case GRAPHICS_COLOR:
+		case GRAPHICS_FGCOLOR:
 			c.r = command->args[0];
 			c.g = command->args[1];
 			c.b = command->args[2];
 			c.a = 0;
 			graphics_fgcolor(g, c);
+			break;
+		case GRAPHICS_BGCOLOR:
+			c.r = command->args[0];
+			c.g = command->args[1];
+			c.b = command->args[2];
+			c.a = 0;
+			graphics_bgcolor(g, c);
 			break;
 		case GRAPHICS_RECT:
 			graphics_rect(g, command->args[0], command->args[1], command->args[2], command->args[3]);
@@ -189,36 +196,37 @@ static inline void plot_pixel(struct bitmap *b, int x, int y, struct graphics_co
 	}
 }
 
-void graphics_rect(struct graphics *g, int x, int y, int w, int h)
+static void graphics_rect_internal(struct graphics *g, int x, int y, int w, int h, struct graphics_color c )
 {
 	int i, j;
 
+	if(x<0) { w+=x; x=0; }
+	if(y<0) { h+=y; y=0; }
+
+	if(x>g->clip.w || y>g->clip.h) return;
+
 	w = MIN(g->clip.w - x, w);
 	h = MIN(g->clip.h - y, h);
+
 	x += g->clip.x;
 	y += g->clip.y;
 
 	for(j = 0; j < h; j++) {
 		for(i = 0; i < w; i++) {
-			plot_pixel(g->bitmap, x + i, y + j, g->fgcolor);
+			plot_pixel(g->bitmap, x + i, y + j,c);
 		}
 	}
 }
 
+
+void graphics_rect(struct graphics *g, int x, int y, int w, int h )
+{
+	graphics_rect_internal(g,x,y,w,h,g->fgcolor);
+}
+
 void graphics_clear(struct graphics *g, int x, int y, int w, int h)
 {
-	int i, j;
-
-	w = MIN(g->clip.w - x, w);
-	h = MIN(g->clip.h - y, h);
-	x += g->clip.x;
-	y += g->clip.y;
-
-	for(j = 0; j < h; j++) {
-		for(i = 0; i < w; i++) {
-			plot_pixel(g->bitmap, x + i, y + j, g->bgcolor);
-		}
-	}
+	graphics_rect_internal(g,x,y,w,h,g->bgcolor);
 }
 
 static inline void graphics_line_vert(struct graphics *g, int x, int y, int w, int h)
@@ -313,6 +321,7 @@ static inline void graphics_line_hozo(struct graphics *g, int x, int y, int w, i
 
 void graphics_line(struct graphics *g, int x, int y, int w, int h)
 {
+	// If width is negative, reverse direction to simplify.
 	if(w < 0) {
 		x = x + w;
 		y = y + h;
@@ -320,25 +329,32 @@ void graphics_line(struct graphics *g, int x, int y, int w, int h)
 		h = -h;
 	}
 
+	// If line falls outside of clip region, bail out.
+	if(x<0 || y<0 || x>g->clip.w || y>g->clip.h) return;
+	if((x+w)>=g->clip.w || (y+h)>=g->clip.h || (y+h)<0 ) return;
+
+	// Adjust origin to clip region.
 	x += g->clip.x;
 	y += g->clip.y;
-
-	if(h > 0) {
-		if(w == 0) {
+	
+	if(h>0) {
+		if(w==0) {
 			graphics_line_vert(g, x, y, w, h);
 		} else if(h > w) {
 			graphics_line_q1(g, x, y, w, h);
 		} else {
 			graphics_line_q2(g, x, y, w, h);
 		}
-	} else {
-		if(h == 0) {
-			graphics_line_hozo(g, x, y, w, h);
+	} else if(h<0) {
+		if(w==0) {
+			graphics_line_vert(g, x, y+h, w, -h);
 		} else if(h > -w) {
 			graphics_line_q3(g, x, y, w, h);
 		} else {
 			graphics_line_q4(g, x, y, w, h);
 		}
+	} else { //h==0
+		graphics_line_hozo(g, x, y, w, h);
 	}
 }
 

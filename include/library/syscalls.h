@@ -33,7 +33,8 @@ extern void *syscall_process_heap(int a);
 
 int syscall_open_file(const char *path, int mode, kernel_flags_t flags);
 int syscall_open_file_relative(int fd, const char *path, int mode, kernel_flags_t flags);
-int syscall_open_dir( int fd, const char *name, kernel_flags_t flags );
+int syscall_open_dir( const char *name, kernel_flags_t flags );
+int syscall_open_dir_relative( int fd, const char *name, kernel_flags_t flags );
 int syscall_open_window(int fd, int x, int y, int w, int h);
 int syscall_open_console(int fd);
 int syscall_open_pipe();
@@ -42,16 +43,14 @@ int syscall_open_pipe();
 
 int syscall_object_type(int fd);
 int syscall_object_dup(int fd1, int fd2);
-int syscall_object_read(int fd, void *data, int length);
-int syscall_object_read_nonblock(int fd, void *data, int length);
+int syscall_object_read(int fd, void *data, int length, kernel_io_flags_t flags );
 int syscall_object_list( int fd, char *buffer, int buffer_len);
-int syscall_object_write(int fd, void *data, int length);
+int syscall_object_write(int fd, const void *data, int length, kernel_io_flags_t flags );
 int syscall_object_seek(int fd, int offset, int whence);
 int syscall_object_size(int fd, int * dims, int n);
 int syscall_object_copy( int src, int dst );
 int syscall_object_remove( int fd, const char *name );
 int syscall_object_close(int fd);
-int syscall_object_stats(int fd, struct object_stats *stats );
 int syscall_object_set_tag(int fd, char *tag);
 int syscall_object_get_tag(int fd, char *buffer, int buffer_size);
 int syscall_object_set_blocking(int fd, int b);
@@ -60,8 +59,14 @@ int syscall_object_max();
 /* Syscalls that query or affect the whole system state. */
 
 int syscall_system_stats(struct system_stats *s);
+int syscall_bcache_stats(struct bcache_stats *s);
+
+int syscall_bcache_flush();
+
 int syscall_system_time( uint32_t *t );
 int syscall_system_rtc( struct rtc_time *t );
+
+int syscall_device_driver_stats(char * name, struct device_driver_stats * stats);
 
 /*
 These system calls are carryovers from Unix-like thinking

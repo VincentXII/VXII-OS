@@ -8,7 +8,6 @@ See the file LICENSE for details.
 #include "kernel/error.h"
 #include "kernel/ascii.h"
 #include "kshell.h"
-#include "keyboard.h"
 #include "console.h"
 #include "string.h"
 #include "rtc.h"
@@ -260,8 +259,9 @@ static int kshell_execute(int argc, const char **argv)
 				struct fs_dirent *n = fs_dirent_mkdir(dir,argv[2]);
 				if(!n) {
 					printf("mkdir: couldn't create %s\n",argv[2]);
+				} else {
+					fs_dirent_close(n);
 				}
-				fs_dirent_close(n);
 				fs_dirent_close(dir);
 			} else {
 				printf("mkdir: couldn't open %s\n",argv[1]);
@@ -346,7 +346,7 @@ int kshell_readline(char *line, int length)
 {
 	int i = 0;
 	while(i < (length - 1)) {
-		char c = keyboard_read(0);
+		char c = console_getchar(&console_root);
 		if(c == ASCII_CR) {
 			line[i] = 0;
 			printf("\n");
